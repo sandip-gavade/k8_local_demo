@@ -1,0 +1,7 @@
+main { max-width: 720px; margin: 2rem auto; font-family: system-ui, sans-serif; padding: 0 1rem; }
+form { display: flex; gap: .5rem; margin-bottom: 1rem; }
+input { padding: .4rem; } input[type=number] { width: 4rem; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: .4rem; border-bottom: 1px solid #ddd; }
+.pending { color: #b45309; } .processed { color: #15803d; } .expired { color: #b91c1c; }
+.error { color: #b91c1c; } pre { background: #f4f4f5; padding: 1rem; overflow: auto; }

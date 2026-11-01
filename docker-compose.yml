@@ -1,0 +1,56 @@
+# Phase 1 smoke test: docker compose up --build
+# UI: http://localhost:3000   API: http://localhost:8000/api/orders/
+x-app: &app
+  build: ./app
+  image: django-app:dev
+  env_file: .env
+  depends_on:
+    postgres: {condition: service_healthy}
+    redis: {condition: service_healthy}
+
+services:
+  postgres:
+    image: postgres:16.6-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      retries: 20
+  redis:
+    image: redis:7.4-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      retries: 20
+  migrate:  # one-shot; Helm will do this as a pre-install/pre-upgrade hook Job
+    <<: *app
+    command: ["python", "manage.py", "migrate", "--noinput"]
+  web:
+    <<: *app
+    ports: ["8000:8000"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+  worker:
+    <<: *app
+    command: ["celery", "-A", "config", "worker", "-l", "info", "--concurrency", "2"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+  frontend:  # React (Vite build) served by unprivileged nginx; proxies /api -> web
+    build: ./frontend
+    image: orders-frontend:dev
+    environment:
+      API_UPSTREAM: http://web:8000
+    ports: ["3000:8080"]
+    depends_on: [web]
+  beat:
+    <<: *app
+    # -s /tmp: schedule file must live on a writable path (non-root, read-only rootfs)
+    command: ["celery", "-A", "config", "beat", "-l", "info", "-s", "/tmp/celerybeat-schedule"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+volumes:
+  pgdata:
