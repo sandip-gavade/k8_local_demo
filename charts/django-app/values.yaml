@@ -19,6 +19,7 @@ config:
   POSTGRES_PORT: "5432"
   REDIS_URL: redis://redis:6379/0
   LOG_LEVEL: INFO
+  LOG_FORMAT: json            # one JSON object per line -> parsed by Loki (`| json`)
 
 # Sensitive settings. Default: use a Secret that already exists in the namespace
 # (created by scripts/create-secrets.sh; on EKS by External Secrets / Secrets Manager).
@@ -85,3 +86,15 @@ hpa:
 migrate:
   enabled: true
   backoffLimit: 2
+
+# OPTIONAL and detachable: renders ServiceMonitor + PrometheusRule + Grafana dashboard.
+# Requires the Prometheus Operator CRDs (kube-prometheus-stack). Set false to run without any monitoring stack.
+observability:
+  enabled: false
+  releaseLabel: mon           # kube-prometheus-stack only selects objects labelled release=<its release name>
+  scrapeInterval: 15s
+  dashboard: {enabled: true}
+  alerts:
+    errorRatePercent: 5       # alert when > 5% of responses are 5xx ...
+    errorRateFor: 5m          # ... for this long
+    restartsThreshold: 3      # container restarts in 15m

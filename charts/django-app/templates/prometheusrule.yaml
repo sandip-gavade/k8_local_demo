@@ -1,0 +1,39 @@
+{{- if .Values.observability.enabled }}
+{{- $ns := .Release.Namespace }}
+{{- $web := printf "%s-web" (include "django-app.fullname" .) }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "django-app.fullname" . }}
+  labels: {{- include "django-app.labels" . | nindent 4 }}
+    release: {{ .Values.observability.releaseLabel }}
+spec:
+  groups:
+    - name: {{ include "django-app.fullname" . }}.rules
+      rules:
+        # Symptom-based: users are getting errors. Pages a human.
+        - alert: DjangoHighErrorRate
+          expr: |
+            100 * sum(rate(django_http_responses_total_by_status_total{namespace="{{ $ns }}",status=~"5.."}[2m]))
+                / sum(rate(django_http_responses_total_by_status_total{namespace="{{ $ns }}"}[2m]))
+              > {{ .Values.observability.alerts.errorRatePercent }}
+          for: {{ .Values.observability.alerts.errorRateFor }}
+          labels: {severity: critical}
+          annotations:
+            summary: "{{ `{{ printf \"%.1f\" $value }}` }}% of Django responses are 5xx"
+            description: "More than {{ .Values.observability.alerts.errorRatePercent }}% 5xx for {{ .Values.observability.alerts.errorRateFor }} in namespace {{ $ns }}. Check: kubectl -n {{ $ns }} logs deploy/{{ $web }}; Grafana dashboard 'Django Orders'."
+        # Cause-based but cheap and useful: crash loops / OOM kills.
+        - alert: DjangoPodRestarting
+          expr: increase(kube_pod_container_status_restarts_total{namespace="{{ $ns }}",pod=~"{{ include "django-app.fullname" . }}-.*"}[15m]) > {{ .Values.observability.alerts.restartsThreshold }}
+          for: 1m
+          labels: {severity: warning}
+          annotations:
+            summary: "{{ `{{ $labels.pod }}` }} restarted {{ `{{ printf \"%.0f\" $value }}` }} times in 15m"
+            description: "Run: kubectl -n {{ $ns }} describe pod {{ `{{ $labels.pod }}` }}; kubectl -n {{ $ns }} logs {{ `{{ $labels.pod }}` }} --previous"
+        - alert: DjangoWebDown
+          expr: absent(up{namespace="{{ $ns }}",service="{{ $web }}"} == 1)
+          for: 2m
+          labels: {severity: critical}
+          annotations:
+            summary: "No healthy Django web target is being scraped"
+{{- end }}

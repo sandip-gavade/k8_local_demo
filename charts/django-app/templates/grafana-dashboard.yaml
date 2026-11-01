@@ -1,0 +1,12 @@
+{{- if and .Values.observability.enabled .Values.observability.dashboard.enabled }}
+# Grafana's sidecar watches ConfigMaps with this label (in all namespaces) and loads them as dashboards.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "django-app.fullname" . }}-dashboard
+  labels: {{- include "django-app.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  django-orders.json: |-
+{{ .Files.Get "files/dashboard.json" | indent 4 }}
+{{- end }}

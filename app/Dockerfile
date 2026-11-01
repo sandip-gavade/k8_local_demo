@@ -18,5 +18,7 @@ WORKDIR /app
 COPY --chown=app:app . .
 USER 10001:10001
 EXPOSE 8000
+# 1 process + threads (not N workers): /metrics counters live in-process, so one process keeps them
+# consistent; scale with pods/HPA instead.
 # Only /tmp and /dev/shm are written to -> compatible with readOnlyRootFilesystem in the Helm chart.
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "30", "--worker-tmp-dir", "/dev/shm", "--access-logfile", "-"]
+CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "1", "--threads", "4", "--worker-class", "gthread", "--timeout", "30", "--worker-tmp-dir", "/dev/shm", "--access-logfile", "-", "--access-logformat", "{\"time\":\"%(t)s\",\"method\":\"%(m)s\",\"path\":\"%(U)s\",\"status\":%(s)s,\"duration_us\":%(D)s}"]

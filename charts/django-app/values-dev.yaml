@@ -5,3 +5,7 @@ hpa:
   enabled: true
   minReplicas: 1
   maxReplicas: 3
+observability:
+  enabled: true
+  alerts:
+    errorRateFor: 1m          # short so the demo alert fires quickly

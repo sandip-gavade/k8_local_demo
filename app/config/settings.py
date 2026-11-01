@@ -12,6 +12,7 @@ ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "*").split(",")
 INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.auth",
+    "django_prometheus",
     "rest_framework",
     "drf_spectacular",
     "orders",
@@ -23,8 +24,10 @@ TEMPLATES = [  # needed only to render the Swagger UI page
 ]
 
 MIDDLEWARE = [
+    "django_prometheus.middleware.PrometheusBeforeMiddleware",  # must be first
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "django_prometheus.middleware.PrometheusAfterMiddleware",  # must be last
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -32,7 +35,7 @@ WSGI_APPLICATION = "config.wsgi.application"
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
+        "ENGINE": "django_prometheus.db.backends.postgresql",  # adds DB query/connection metrics
         "NAME": os.environ.get("POSTGRES_DB", "orders"),
         "USER": os.environ.get("POSTGRES_USER", "orders"),
         "PASSWORD": os.environ["POSTGRES_PASSWORD"],
@@ -70,10 +73,20 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 
+# LOG_FORMAT=json -> one JSON object per line, which Loki/Alloy can parse into fields.
+LOG_FORMAT = os.environ.get("LOG_FORMAT", "text")
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {"console": {"class": "logging.StreamHandler"}},  # stdout only: container-friendly
+    "formatters": {
+        "json": {
+            "()": "pythonjsonlogger.json.JsonFormatter",
+            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+            "rename_fields": {"asctime": "time", "levelname": "level", "name": "logger"},
+        },
+        "text": {"format": "%(asctime)s %(levelname)s %(name)s %(message)s"},
+    },
+    "handlers": {"console": {"class": "logging.StreamHandler", "formatter": LOG_FORMAT}},  # stdout only
     "root": {"handlers": ["console"], "level": os.environ.get("LOG_LEVEL", "INFO")},
 }
 

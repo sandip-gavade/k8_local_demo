@@ -1,0 +1,60 @@
+# kube-prometheus-stack (Prometheus Operator, Prometheus, Alertmanager, Grafana, kube-state-metrics, node-exporter).
+# Trimmed for a single-node kind cluster. Installed as release "mon" in namespace "monitoring".
+# The release name "mon" is what apps must put in their `release: mon` label so this Prometheus selects them.
+
+# kind doesn't expose these control-plane endpoints; scraping them would only create TargetDown noise.
+kubeEtcd: {enabled: false}
+kubeScheduler: {enabled: false}
+kubeControllerManager: {enabled: false}
+kubeProxy: {enabled: false}
+defaultRules:
+  rules: {etcd: false, kubeSchedulerAlerting: false, kubeSchedulerRecording: false, kubeControllerManager: false, kubeProxy: false}
+
+prometheus:
+  prometheusSpec:
+    retention: 6h                 # demo only; real clusters: days + remote_write / Thanos / AMP
+    resources:
+      requests: {cpu: 100m, memory: 400Mi}
+      limits: {memory: 1Gi}
+    # Default (true): only ServiceMonitors/PrometheusRules labelled release=mon are picked up.
+    serviceMonitorSelectorNilUsesHelmValues: true
+    ruleSelectorNilUsesHelmValues: true
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {memory: 128Mi}
+
+grafana:
+  # Password lives in a Secret created by scripts/monitoring-up.sh, never in this file.
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 384Mi}
+  # Dashboards: sidecar loads any ConfigMap labelled grafana_dashboard=1 from ALL namespaces (our app chart ships one).
+  sidecar:
+    dashboards: {searchNamespace: ALL}
+  additionalDataSources:
+    - name: Loki
+      uid: loki
+      type: loki
+      access: proxy
+      url: http://loki.monitoring.svc.cluster.local:3100
+      jsonData: {maxLines: 1000}
+
+kube-state-metrics:
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 128Mi}
+prometheus-node-exporter:
+  resources:
+    requests: {cpu: 10m, memory: 16Mi}
+    limits: {memory: 64Mi}
+prometheusOperator:
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+    limits: {memory: 192Mi}
