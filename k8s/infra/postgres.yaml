@@ -1,0 +1,44 @@
+# Headless Service gives the StatefulSet stable DNS: postgres-0.postgres.demo.svc; "postgres" also resolves for clients.
+apiVersion: v1
+kind: Service
+metadata: {name: postgres, namespace: demo, labels: {app: postgres}}
+spec:
+  clusterIP: None
+  selector: {app: postgres}
+  ports: [{name: pg, port: 5432}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: postgres, namespace: demo}
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector: {matchLabels: {app: postgres}}
+  template:
+    metadata: {labels: {app: postgres}}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 70, runAsGroup: 70, fsGroup: 70, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: postgres
+          image: postgres:16.6-alpine
+          ports: [{containerPort: 5432, name: pg}]
+          env:
+            - {name: POSTGRES_DB, value: orders}
+            - {name: POSTGRES_USER, value: orders}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: orders-secrets, key: POSTGRES_PASSWORD}}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}  # subdir: avoids lost+found on fresh PV
+          readinessProbe: {exec: {command: ["pg_isready", "-U", "orders", "-d", "orders"]}, periodSeconds: 5}
+          livenessProbe: {exec: {command: ["pg_isready", "-U", "orders", "-d", "orders"]}, periodSeconds: 10, failureThreshold: 6}
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 512Mi}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+            - {name: run, mountPath: /var/run/postgresql}
+      volumes:
+        - {name: run, emptyDir: {}}
+  volumeClaimTemplates:   # one PVC per replica (data-postgres-0), survives pod restarts
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 1Gi}}
