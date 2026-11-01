@@ -13,8 +13,13 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.auth",
     "rest_framework",
+    "drf_spectacular",
     "orders",
     "core",
+]
+
+TEMPLATES = [  # needed only to render the Swagger UI page
+    {"BACKEND": "django.template.backends.django.DjangoTemplates", "APP_DIRS": True},
 ]
 
 MIDDLEWARE = [
@@ -45,6 +50,7 @@ TIME_ZONE = "UTC"
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 
 REST_FRAMEWORK = {
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 50,
@@ -69,4 +75,11 @@ LOGGING = {
     "disable_existing_loggers": False,
     "handlers": {"console": {"class": "logging.StreamHandler"}},  # stdout only: container-friendly
     "root": {"handlers": ["console"], "level": os.environ.get("LOG_LEVEL", "INFO")},
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Orders API",
+    "DESCRIPTION": "Demo orders API (Django + DRF + Celery).",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
 }
