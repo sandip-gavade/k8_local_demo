@@ -87,15 +87,66 @@ Order matters: `mon` first because it installs the CRDs (`ServiceMonitor`, `Prom
 Alert on symptoms (error rate, latency, availability) that a human must act on; use cause metrics (CPU, restarts) as lower-severity hints.
 The annotation `{{ $labels.pod }}` is Go-template syntax that Helm would try to render, so the chart escapes it as `` {{ `{{ $labels.pod }}` }} ``.
 
-### 6. Look at it
+### 6. How to start and open Grafana, Prometheus and Loki
+
+**Nothing to "start".** After `./scripts/monitoring-up.sh` all of them run as pods in the cluster
+(`kubectl -n monitoring get pods`). They have no ports on your Mac, though, so you open a door with
+`kubectl port-forward`. One command opens all four doors:
+
 ```bash
-kubectl -n monitoring get secret grafana-admin -o jsonpath='{.data.admin-password}' | base64 -d; echo
-kubectl -n monitoring port-forward svc/mon-grafana 3001:80                        # http://localhost:3001  user: admin
-kubectl -n monitoring port-forward svc/mon-kube-prometheus-stack-prometheus 9090  # http://localhost:9090 (Status > Targets, Alerts)
-kubectl -n monitoring port-forward svc/mon-kube-prometheus-stack-alertmanager 9093 # http://localhost:9093
+./scripts/monitoring-open.sh        # leave it running in its own terminal tab; Ctrl+C closes the doors
 ```
-Grafana: Dashboards > "Django Orders - RED/USE"; Explore > Loki > `{namespace="demo"} | json`.
-Generate traffic: `for i in $(seq 1 200); do curl -s localhost:8080/api/orders/ >/dev/null; done`
+| Tool | URL | Login | What to do there |
+|---|---|---|---|
+| **Grafana** | http://localhost:3001 | user `admin`, password printed by the script | Dashboards > "Django Orders - RED/USE"; Explore > pick **Loki** for logs or **Prometheus** for metrics |
+| **Prometheus** | http://localhost:9090 | none | Status > Targets (is `orders-web` UP?); Alerts (state of the 3 alerts); Graph (run PromQL) |
+| **Alertmanager** | http://localhost:9093 | none | See firing alerts, silences |
+| **Loki** | http://localhost:3100/ready | none | **No web UI.** Loki is a log database; you read logs through Grafana > Explore > Loki |
+
+Manual equivalents (one terminal each, if you prefer):
+```bash
+kubectl -n monitoring get secret grafana-admin -o jsonpath='{.data.admin-password}' | base64 -d; echo   # password
+kubectl -n monitoring port-forward svc/mon-grafana 3001:80
+kubectl -n monitoring port-forward svc/mon-kube-prometheus-stack-prometheus 9090:9090
+kubectl -n monitoring port-forward svc/mon-kube-prometheus-stack-alertmanager 9093:9093
+kubectl -n monitoring port-forward svc/loki 3100:3100
+```
+(Grafana uses 3001 because 3000 is the docker-compose frontend port.)
+
+**Try them, in this order:**
+1. Generate traffic so graphs have data:
+   `for i in $(seq 1 200); do curl -s localhost:8080/api/orders/ >/dev/null; done`
+   and create an order in the UI at http://localhost:8080/.
+2. **Prometheus** > Status > Targets: `serviceMonitor/demo/orders-web/0` should be **UP**.
+   Graph tab, run: `sum(rate(django_http_requests_total_by_method_total[1m]))`.
+3. **Grafana** > Dashboards > *Django Orders - RED/USE*: request rate, error %, p95 latency, pod CPU/memory, logs.
+4. **Grafana > Explore > Loki** (dropdown top-left), then run the queries:
+   - all web logs: `{namespace="demo", container="web"}`
+   - parsed JSON, only errors: `{namespace="demo", container="web"} | json | status >= 500`
+   - one pod, text search: `{namespace="demo", pod=~"orders-worker.*"} |= "process_order"`
+5. **Prometheus > Alerts** shows `DjangoHighErrorRate` as *inactive* (green). To see it fire, run
+   `./scripts/phase4-verify.sh` (it takes Postgres down for a few minutes, then restores it).
+
+**Starting / stopping / after a restart**
+| Situation | What to do |
+|---|---|
+| First time, or after `monitoring-down.sh` | `./scripts/monitoring-up.sh` (about 5 min the first time, images are cached after) |
+| Mac or Docker Desktop restarted | The kind node container comes back by itself and pods restart (Loki/Prometheus keep PVC data). Check `kubectl get pods -A`, then `./scripts/monitoring-open.sh`. If kubectl can't connect, start Docker Desktop first. |
+| Port-forward died (laptop slept, pod restarted) | Run `./scripts/monitoring-open.sh` again. A port-forward is just a tunnel, it never needs the stack to be reinstalled. |
+| "connection refused" on a port | The script isn't running or another process holds the port: `lsof -i :3001` |
+| Save RAM but keep data | `kubectl -n monitoring scale deploy --all --replicas=0` then `kubectl -n monitoring scale deploy --all --replicas=1` (StatefulSets: `kubectl -n monitoring scale sts --all --replicas=0/1`) |
+| Remove completely | `./scripts/monitoring-down.sh` |
+
+**Which pod is which** (`kubectl -n monitoring get pods`)
+| Pod | Role |
+|---|---|
+| `prometheus-mon-kube-prometheus-stack-prometheus-0` | Prometheus (stores metrics, evaluates alert rules) |
+| `alertmanager-mon-kube-prometheus-stack-alertmanager-0` | Alertmanager (groups/routes alerts) |
+| `mon-grafana-*` | Grafana UI (+ sidecars that load dashboards/datasources) |
+| `mon-kube-prometheus-stack-operator-*` | Operator: turns ServiceMonitor/PrometheusRule objects into Prometheus config |
+| `mon-kube-state-metrics-*`, `mon-prometheus-node-exporter-*` | Export K8s object state and node metrics |
+| `loki-0` | Log database |
+| `alloy-*` | Log collector: reads pod logs, pushes to Loki |
 
 ## Detaching observability (the answer to "can we remove it?")
 Yes, in two layers:
