@@ -1,0 +1,41 @@
+{{- $sel := dict "ctx" . "component" "worker" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "django-app.fullname" . }}-worker
+  labels: {{- include "django-app.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels: {{- include "django-app.selectorLabels" $sel | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "django-app.selectorLabels" $sel | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "django-app.fullname" . }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 60   # let in-flight tasks finish on SIGTERM (warm shutdown)
+      containers:
+        - name: worker
+          image: {{ include "django-app.backendImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["celery", "-A", "config", "worker", "-l", "info", "--concurrency", "{{ .Values.worker.concurrency }}"]
+          envFrom: [{configMapRef: {name: {{ include "django-app.fullname" . }}-config}}]
+          env: {{- include "django-app.secretEnv" . | nindent 12 }}
+          # No HTTP port, so liveness asks the worker itself via the broker.
+          livenessProbe:
+            exec: {command: ["sh", "-c", "celery -A config inspect ping -d celery@$HOSTNAME -t 5"]}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          resources: {{- toYaml .Values.worker.resources | nindent 12 }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: {{- include "django-app.tmpVolume" . | nindent 8 }}

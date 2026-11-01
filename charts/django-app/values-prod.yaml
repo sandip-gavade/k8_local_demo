@@ -1,0 +1,33 @@
+# EKS: images come from ECR (tag set by CI with --set image.backend.tag=<git sha>), real host + TLS.
+image:
+  backend:  {repository: 123456789012.dkr.ecr.ap-south-1.amazonaws.com/django-app, tag: "set-by-ci"}
+  frontend: {repository: 123456789012.dkr.ecr.ap-south-1.amazonaws.com/orders-frontend, tag: "set-by-ci"}
+  pullPolicy: Always
+config:
+  LOG_LEVEL: WARNING
+  POSTGRES_HOST: orders-db.abc123.ap-south-1.rds.amazonaws.com   # RDS, not an in-cluster StatefulSet
+  REDIS_URL: redis://orders-redis.abc123.cache.amazonaws.com:6379/0   # ElastiCache
+  DJANGO_ALLOWED_HOSTS: orders.example.com
+web:
+  replicas: 2
+  resources:
+    requests: {cpu: 250m, memory: 384Mi}
+    limits: {memory: 768Mi}
+worker:
+  replicas: 2
+  resources:
+    requests: {cpu: 250m, memory: 384Mi}
+    limits: {memory: 768Mi}
+frontend:
+  replicas: 2
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+ingress:
+  host: orders.example.com
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  tls:
+    - hosts: [orders.example.com]
+      secretName: orders-tls

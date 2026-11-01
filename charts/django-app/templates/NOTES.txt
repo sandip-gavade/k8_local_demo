@@ -1,0 +1,4 @@
+Release {{ .Release.Name }} deployed to namespace {{ .Release.Namespace }}.
+Needs Secret "{{ .Values.secret.name }}" (POSTGRES_PASSWORD, DJANGO_SECRET_KEY) to exist.
+UI:      http://localhost:8080/
+Swagger: http://localhost:8080/api/docs/

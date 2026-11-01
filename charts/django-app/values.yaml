@@ -1,0 +1,87 @@
+# Defaults. Per-environment overrides live in values-dev.yaml / values-prod.yaml.
+# NEVER put real secrets in any values file committed to git (see `secret` below).
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  backend:  {repository: django-app, tag: dev}
+  frontend: {repository: orders-frontend, tag: dev}
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+# Non-sensitive settings -> ConfigMap (and inline env for the migrate Job).
+config:
+  DJANGO_DEBUG: "0"
+  DJANGO_ALLOWED_HOSTS: "*"
+  POSTGRES_DB: orders
+  POSTGRES_USER: orders
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  REDIS_URL: redis://redis:6379/0
+  LOG_LEVEL: INFO
+
+# Sensitive settings. Default: use a Secret that already exists in the namespace
+# (created by scripts/create-secrets.sh; on EKS by External Secrets / Secrets Manager).
+# create=true renders a Secret from `data` - for throwaway tests only, pass via --set, never commit.
+secret:
+  create: false
+  name: orders-secrets
+  data: {}   # POSTGRES_PASSWORD, DJANGO_SECRET_KEY
+
+# Pod/container hardening shared by all workloads.
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile: {type: RuntimeDefault}
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: {drop: [ALL]}
+
+web:
+  replicas: 1                 # ignored when hpa.enabled (HPA owns replicas)
+  port: 8000
+  resources:
+    requests: {cpu: 100m, memory: 192Mi}
+    limits: {memory: 384Mi}
+  strategy:                   # zero-downtime rolling update
+    maxSurge: 1
+    maxUnavailable: 0
+
+worker:
+  replicas: 1
+  concurrency: 2
+  resources:
+    requests: {cpu: 100m, memory: 192Mi}
+    limits: {memory: 384Mi}
+
+beat:                         # always exactly 1 replica + Recreate, or tasks fire twice
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+
+frontend:
+  replicas: 1
+  port: 8080
+  resources:
+    requests: {cpu: 25m, memory: 32Mi}
+    limits: {memory: 64Mi}
+
+service:
+  type: ClusterIP
+
+ingress:
+  enabled: true
+  className: nginx
+  host: ""                    # empty = match any host (http://localhost:8080)
+  annotations: {}
+  tls: []
+
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 70
+
+migrate:
+  enabled: true
+  backoffLimit: 2

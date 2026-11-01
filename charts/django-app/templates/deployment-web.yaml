@@ -1,0 +1,45 @@
+{{- $sel := dict "ctx" . "component" "web" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "django-app.fullname" . }}-web
+  labels: {{- include "django-app.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  {{- if not .Values.hpa.enabled }}
+  replicas: {{ .Values.web.replicas }}
+  {{- end }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: {{ .Values.web.strategy.maxSurge }}
+      maxUnavailable: {{ .Values.web.strategy.maxUnavailable }}
+  selector:
+    matchLabels: {{- include "django-app.selectorLabels" $sel | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "django-app.selectorLabels" $sel | nindent 8 }}
+      annotations:
+        # Config change -> new hash -> pods roll (ConfigMap edits alone don't restart pods).
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "django-app.fullname" . }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: web
+          image: {{ include "django-app.backendImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports: [{name: http, containerPort: {{ .Values.web.port }}}]
+          envFrom: [{configMapRef: {name: {{ include "django-app.fullname" . }}-config}}]
+          env: {{- include "django-app.secretEnv" . | nindent 12 }}
+          # startup: gives slow boots time without loosening liveness. liveness: never checks dependencies.
+          startupProbe:   {httpGet: {path: /healthz, port: http}, periodSeconds: 3, failureThreshold: 20}
+          livenessProbe:  {httpGet: {path: /healthz, port: http}, periodSeconds: 10, timeoutSeconds: 2, failureThreshold: 3}
+          readinessProbe: {httpGet: {path: /readyz,  port: http}, periodSeconds: 5,  timeoutSeconds: 3, failureThreshold: 3}
+          resources: {{- toYaml .Values.web.resources | nindent 12 }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: {{- include "django-app.tmpVolume" . | nindent 8 }}

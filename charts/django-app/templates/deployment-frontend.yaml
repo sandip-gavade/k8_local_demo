@@ -1,0 +1,41 @@
+{{- $sel := dict "ctx" . "component" "frontend" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "django-app.fullname" . }}-frontend
+  labels: {{- include "django-app.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  replicas: {{ .Values.frontend.replicas }}
+  selector:
+    matchLabels: {{- include "django-app.selectorLabels" $sel | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "django-app.selectorLabels" $sel | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "django-app.fullname" . }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: frontend
+          image: {{ include "django-app.frontendImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports: [{name: http, containerPort: {{ .Values.frontend.port }}}]
+          env:
+            # Only used by the image's nginx /api proxy; in-cluster the Ingress routes /api straight to web.
+            - {name: API_UPSTREAM, value: "http://{{ include "django-app.fullname" . }}-web:{{ .Values.web.port }}"}
+          readinessProbe: {httpGet: {path: /healthz, port: http}, periodSeconds: 5}
+          livenessProbe:  {httpGet: {path: /healthz, port: http}, periodSeconds: 10}
+          resources: {{- toYaml .Values.frontend.resources | nindent 12 }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          # nginx writes its rendered config, pid and caches at runtime -> emptyDirs on an otherwise read-only fs.
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: nginx-cache, mountPath: /var/cache/nginx}
+            - {name: nginx-conf, mountPath: /etc/nginx/conf.d}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+        - {name: nginx-cache, emptyDir: {}}
+        - {name: nginx-conf, emptyDir: {}}

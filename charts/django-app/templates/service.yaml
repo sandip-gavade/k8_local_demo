@@ -1,0 +1,13 @@
+{{- range $component, $port := dict "web" .Values.web.port "frontend" .Values.frontend.port }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "django-app.fullname" $ }}-{{ $component }}
+  labels: {{- include "django-app.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+spec:
+  type: {{ $.Values.service.type }}
+  selector: {{- include "django-app.selectorLabels" (dict "ctx" $ "component" $component) | nindent 4 }}
+  ports: [{name: http, port: {{ $port }}, targetPort: http}]
+{{- end }}

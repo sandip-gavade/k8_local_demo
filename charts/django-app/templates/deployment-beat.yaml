@@ -1,0 +1,34 @@
+{{- $sel := dict "ctx" . "component" "beat" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "django-app.fullname" . }}-beat
+  labels: {{- include "django-app.labels" . | nindent 4 }}
+    app.kubernetes.io/component: beat
+spec:
+  replicas: 1                # NEVER scale beat: 2 schedulers = every periodic task runs twice
+  strategy: {type: Recreate} # never run old + new beat at the same time during a rollout
+  selector:
+    matchLabels: {{- include "django-app.selectorLabels" $sel | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "django-app.selectorLabels" $sel | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "django-app.fullname" . }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: beat
+          image: {{ include "django-app.backendImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["celery", "-A", "config", "beat", "-l", "info", "-s", "/tmp/celerybeat-schedule"]
+          envFrom: [{configMapRef: {name: {{ include "django-app.fullname" . }}-config}}]
+          env: {{- include "django-app.secretEnv" . | nindent 12 }}
+          resources: {{- toYaml .Values.beat.resources | nindent 12 }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: {{- include "django-app.tmpVolume" . | nindent 8 }}
